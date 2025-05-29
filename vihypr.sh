@@ -2,6 +2,7 @@
 
 CONFIG="$HOME/.config/hypr/hyprland.conf"
 LOCKFILE="/tmp/hyprland_conf.lock"
+TMP_CONFIG="/tmp/hyprland.conf.tmp"
 BACKUP="${CONFIG}.bak"
 
 if [ -e "$LOCKFILE" ]; then
@@ -10,21 +11,23 @@ if [ -e "$LOCKFILE" ]; then
 fi
 
 touch "$LOCKFILE"
-
 cp "$CONFIG" "$BACKUP"
+cp "$CONFIG" "$TMP_CONFIG"
 
-${EDITOR:-nano} "$CONFIG"
+${EDITOR:-nano} "$TMP_CONFIG"
 
-OUTPUT=$(hyprland --verify-config "$CONFIG" 2>&1)
+cp "$TMP_CONFIG" "$CONFIG"
+
+OUTPUT=$(hyprland --verify-config 2>&1)
 STATUS=$?
 
-echo "$OUTPUT"
-
 if [ $STATUS -ne 0 ]; then
-  echo "Config error detected, restoring backup"
+  echo "$OUTPUT"
+  echo "Config error detected, reverting changes"
   cp "$BACKUP" "$CONFIG"
 else
-  echo "Syntax looks good, changes saved"
+  echo "$OUTPUT"
+  echo "Config looks good, changes saved"
 fi
 
-rm "$LOCKFILE"
+rm "$TMP_CONFIG" "$LOCKFILE"
