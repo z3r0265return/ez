@@ -1,0 +1,71 @@
+#!/bin/bash
+AUR_API="https://aur.archlinux.org/rpc/?v=5&type=search&arg="
+AUR_INFO_API="https://aur.archlinux.org/rpc/?v=5&type=info&arg="
+TMPDIR="/tmp/aurxplorer"
+mkdir -p "$TMPDIR"
+
+function search() {
+    query="$*"
+    [[ -z "$query" ]] && { echo "usage: aurxplorer search <term>"; exit 1; }
+    echo "searching AUR for: $query..."
+    data=$(curl -s "$AUR_API$(echo "$query" | sed 's/ /%20/g')")
+    count=$(echo "$data" | jq '.resultcount')
+    [[ "$count" -eq 0 ]] && { echo "no results found"; exit 0; }
+    echo "$data" | jq -r '.results[] | "\(.Name) - \(.Version) - \(.Description)"'
+}
+
+function download() {
+    pkg="$1"
+    [[ -z "$pkg" ]] && { echo "usage: aurxplorer download <pkgname>"; exit 1; }
+    echo "cloning $pkg..."
+    rm -rf "$TMPDIR/$pkg"
+    git clone "https://aur.archlinux.org/$pkg.git" "$TMPDIR/$pkg" || { echo "clone failed"; exit 1; }
+}
+
+function build_and_install() {
+    pkg="$1"
+    [[ -z "$pkg" ]] && { echo "usage: aurxplorer build <pkgname>"; exit 1; }
+    [[ ! -d "$TMPDIR/$pkg" ]] && download "$pkg"
+    echo "building $pkg..."
+    cd "$TMPDIR/$pkg" || exit 1
+
+    # clean old builds to avoid conflicts
+    rm -f *.pkg.tar.zst *.pkg.tar.xz *.pkg.tar.gz *.pkg.tar
+
+    # build package without installing
+    makepkg -f --noconfirm || { echo "build failed"; cd - >/dev/null; exit 1; }
+
+    # find built package file
+    pkgfile=$(ls *.pkg.tar.* 2>/dev/null | head -1)
+    [[ -z "$pkgfile" ]] && { echo "no package built"; cd - >/dev/null; exit 1; }
+
+    echo "installing $pkgfile with pacman..."
+    sudo pacman -U --noconfirm "$pkgfile" || { echo "pacman install failed"; cd - >/dev/null; exit 1; }
+    cd - >/dev/null || exit 1
+}
+
+function clean() {
+    echo "cleaning $TMPDIR..."
+    rm -rf "$TMPDIR"
+}
+
+function help() {
+    cat << EOF
+aurxplorer - minimal AUR helper
+
+usage:
+  aurxplorer search <term>       search AUR packages
+  aurxplorer download <pkgname>  clone package git repo
+  aurxplorer build <pkgname>     download + build + install package via pacman
+  aurxplorer clean               clean temporary files
+  aurxplorer help                this help screen
+EOF
+}
+
+case "$1" in
+    search) shift; search "$@" ;;
+    download) shift; download "$1" ;;
+    build) shift; build_and_install "$1" ;;
+    clean) clean ;;
+    help|*) help ;;
+esac
